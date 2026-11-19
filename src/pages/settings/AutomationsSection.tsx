@@ -3,7 +3,7 @@ import { listIntegrations } from '@/lib/api/settings'
 import { useAsync } from '@/hooks/useAsync'
 import { useAuth } from '@/auth/AuthProvider'
 import { Card } from '@/components/ui/Card'
-import { Field, Input, Toggle } from '@/components/ui/Field'
+import { Toggle } from '@/components/ui/Field'
 import { PageLoader } from '@/components/ui/Spinner'
 import { ErrorNote } from '@/components/ui/EmptyState'
 import { IntegrationStatusPill } from '@/components/content/IntegrationStatusPill'
@@ -45,17 +45,15 @@ export function AutomationsSection() {
             checked={v.agent_auto_proposals}
             disabled={!isAdmin || !aiReady}
             onChange={(x) => f.patch({ agent_auto_proposals: x })}
-            label="Propuestas automáticas del agente"
-            description="El agente propone contenido periódicamente; queda como pendiente de aprobación."
+            label="Armar la semana automáticamente"
+            description="Cada jueves a las 9:00 el agente prepara la semana siguiente según la frecuencia de publicación: investiga, escribe, busca fotos y videos reales y lo deja todo en el calendario como pendiente de tu aprobación."
           />
           {!aiReady && (
             <p className="flex items-center gap-2 text-xs text-cocoa-500">
               <Lock className="size-3.5 text-gold-500" /> Requiere IA de texto conectada. <IntegrationStatusPill status={ai.status} />
             </p>
           )}
-          <Field label="Propuestas por semana" className="max-w-xs">
-            <Input type="number" min={0} max={30} value={v.agent_proposals_per_week} disabled={!isAdmin || !aiReady} onChange={(e) => f.patch({ agent_proposals_per_week: Number(e.target.value) })} />
-          </Field>
+          <p className="text-xs text-cocoa-500">La cantidad de piezas por formato se define en Configuración → Frecuencia.</p>
         </div>
         <div className="flex items-center justify-between gap-3 p-5 sm:p-7">
           <div>

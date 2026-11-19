@@ -130,6 +130,36 @@ function DetailBody({ id, onChanged, onClose }: { id: string; onChanged: () => v
             <p className="mt-4 rounded-xl bg-rose-100/70 px-4 py-3 text-sm text-rose-600">{c.error_message}</p>
           )}
           {c.notes && <p className="mt-4 rounded-xl bg-cream-200/60 px-4 py-3 text-sm text-cocoa-600">Notas internas: {c.notes}</p>}
+          {!!c.sources?.length && (
+            <div className="mt-4">
+              <p className="text-xs text-cocoa-400">Fuentes consultadas por el agente</p>
+              <ul className="mt-1 space-y-1 text-sm">
+                {c.sources.map((s) => (
+                  <li key={s.url} className="min-w-0">
+                    <a href={s.url} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 text-gold-600 underline underline-offset-2 break-all">
+                      {s.title || s.url} <ExternalLink className="size-3 shrink-0" />
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {c.content_assets.some((a) => a.credit) && (
+            <p className="mt-3 text-xs text-cocoa-500">
+              Material visual:{' '}
+              {c.content_assets
+                .filter((a) => a.credit)
+                .map((a, i) => (
+                  <span key={a.id}>
+                    {i > 0 && ', '}
+                    <a href={a.credit!.page_url} target="_blank" rel="noreferrer noopener" className="underline underline-offset-2">
+                      {a.credit!.author}
+                    </a>
+                  </span>
+                ))}{' '}
+              en Pexels
+            </p>
+          )}
         </div>
 
         <ContentActions item={c} onChanged={refresh} size="md" />

@@ -7,6 +7,7 @@ export const INTEGRATION_KEYS = [
   'ai_text',
   'ai_image',
   'ai_video',
+  'stock_media',
   'instagram',
   'n8n',
   'travel_providers',
@@ -50,6 +51,13 @@ export const INTEGRATIONS: Record<IntegrationKey, IntegrationDef> = {
     description: 'Generación de Reels y videos para historias.',
     envVars: ['AI_VIDEO_PROVIDER', 'AI_VIDEO_API_KEY'],
     phase: 'Fase 3',
+  },
+  stock_media: {
+    key: 'stock_media',
+    name: 'Banco de fotos y videos (Pexels)',
+    description: 'Fotos y videos reales de destinos para cada publicación, con crédito al autor.',
+    envVars: ['PEXELS_API_KEY'],
+    phase: 'Fase 2',
   },
   instagram: {
     key: 'instagram',

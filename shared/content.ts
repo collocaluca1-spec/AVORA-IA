@@ -121,6 +121,8 @@ export interface ContentItem {
   destination: string | null
   topic_key: string | null
   notes: string | null
+  /** Fuentes consultadas por el agente */
+  sources?: { url: string; title: string }[]
   scheduled_at: string | null
   published_at: string | null
   includes_price: boolean
@@ -147,7 +149,9 @@ export interface ContentAsset {
   duration_seconds: number | null
   position: number
   alt_text: string | null
-  source: 'upload' | 'ai'
+  source: 'upload' | 'ai' | 'stock'
+  /** Crédito del autor para material de banco (Pexels) */
+  credit?: { provider: string; author: string; author_url: string; page_url: string } | null
   created_at: string
 }
 

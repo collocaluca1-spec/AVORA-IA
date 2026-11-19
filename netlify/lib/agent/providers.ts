@@ -1,12 +1,9 @@
+import { createAnthropicProvider } from './anthropic.ts'
+
 /**
- * Proveedores de IA de texto.
- *
- * Fase 1: solo existe la interfaz. No hay ningún proveedor implementado, por lo
- * que `resolveTextProvider()` devuelve `null` y el agente responde
- * "not_configured". No hay respuestas simuladas.
- *
- * Fase 2: agregar un adaptador por proveedor en REGISTRY (p. ej. 'anthropic'),
- * que lea su clave de process.env.AI_TEXT_API_KEY y respete la interfaz.
+ * Proveedores de IA de texto. Si falta la configuración, `resolveTextProvider()`
+ * devuelve `null` y el agente responde "not_configured": no hay respuestas simuladas.
+ * Para sumar otro proveedor, agregar su adaptador a REGISTRY.
  */
 export interface GenerateJSONArgs {
   system: string
@@ -16,18 +13,22 @@ export interface GenerateJSONArgs {
   maxTokens?: number
   /** El proveedor debe poder citar fuentes web para tareas de investigación */
   needsWebSources?: boolean
+  /** Máximo de búsquedas web en la tarea */
+  webSearchMaxUses?: number
 }
 
 export interface TextProvider {
   name: string
   supportsWebSources: boolean
   generateJSON(args: GenerateJSONArgs): Promise<unknown>
+  /** Llamada real y barata para comprobar la clave */
+  verify(): Promise<boolean>
 }
 
 type Factory = (apiKey: string) => TextProvider
 
 const REGISTRY: Record<string, Factory> = {
-  // 'anthropic': (key) => createAnthropicProvider(key),   ← Fase 2
+  anthropic: createAnthropicProvider,
 }
 
 export function resolveTextProvider(): { provider: TextProvider | null; reason?: string } {

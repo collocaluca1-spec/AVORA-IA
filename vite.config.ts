@@ -15,6 +15,6 @@ export default defineConfig({
     chunkSizeWarningLimit: 700,
   },
   test: {
-    include: ['shared/**/*.test.ts', 'src/**/*.test.ts'],
+    include: ['shared/**/*.test.ts', 'src/**/*.test.ts', 'netlify/**/*.test.ts'],
   },
 })

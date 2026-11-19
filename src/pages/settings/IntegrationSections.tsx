@@ -92,7 +92,7 @@ export function AiIntegrationsSection() {
     <>
       <Intro onCheck={check} checking={checking} />
       <div className="space-y-4">
-        {(['ai_text', 'ai_image', 'ai_video', 'n8n'] as IntegrationKey[]).map((k) => (
+        {(['ai_text', 'stock_media', 'ai_image', 'ai_video', 'n8n'] as IntegrationKey[]).map((k) => (
           <IntegrationCard key={k} k={k} row={get(k)} />
         ))}
       </div>

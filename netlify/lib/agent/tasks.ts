@@ -8,6 +8,9 @@ export const AGENT_TASKS = [
   'seasonal_recommendations',
 ] as const
 export type AgentTask = (typeof AGENT_TASKS)[number]
+/** Tareas que se pueden encolar: las anteriores más la planificación semanal */
+export const RUNNABLE_TASKS = [...AGENT_TASKS, 'plan_week'] as const
+export type RunnableTask = (typeof RUNNABLE_TASKS)[number]
 
 export interface TaskDef {
   needsWebSources: boolean
