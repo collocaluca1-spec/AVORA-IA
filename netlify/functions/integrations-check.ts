@@ -5,6 +5,7 @@ import { handleError, json } from '../lib/http.ts'
 import { logServer, supabaseAdmin } from '../lib/supabaseAdmin.ts'
 import { resolveTextProvider } from '../lib/agent/providers.ts'
 import { resolveStockProvider } from '../lib/media/stock.ts'
+import { verifyConnection } from '../lib/instagram.ts'
 
 /**
  * Describe la forma de una clave SIN revelarla, para diagnosticar errores de
@@ -37,6 +38,10 @@ const VERIFIERS: Partial<Record<IntegrationKey, () => Promise<{ provider: string
       throw e
     }
     return { provider: provider.name }
+  },
+  async instagram() {
+    const acc = await verifyConnection()
+    return acc ? { provider: acc.username ? `@${acc.username}` : 'instagram' } : null
   },
   async stock_media() {
     const stock = resolveStockProvider()

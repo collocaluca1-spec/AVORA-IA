@@ -62,8 +62,8 @@ export const INTEGRATIONS: Record<IntegrationKey, IntegrationDef> = {
   instagram: {
     key: 'instagram',
     name: 'Instagram',
-    description: 'Publicación vía API oficial (Instagram Graph API, cuenta profesional).',
-    envVars: ['INSTAGRAM_BUSINESS_ACCOUNT_ID', 'INSTAGRAM_ACCESS_TOKEN'],
+    description: 'Publicación automática vía API oficial de Instagram (cuenta profesional, sin página de Facebook).',
+    envVars: ['INSTAGRAM_ACCESS_TOKEN'],
     phase: 'Fase 3',
   },
   n8n: {

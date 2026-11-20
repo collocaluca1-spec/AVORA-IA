@@ -112,13 +112,13 @@ export function InstagramSection() {
         <div className="mt-5 space-y-2 border-t border-cream-200 pt-5 text-sm text-cocoa-600">
           <p className="flex gap-2">
             <Info className="mt-0.5 size-4 shrink-0 text-gold-500" strokeWidth={1.5} />
-            Requisitos: cuenta profesional de Instagram vinculada a una página de Facebook, app de Meta con permisos de publicación y
-            token de larga duración.
+            Requisitos: cuenta profesional de Instagram (empresa o creador) y una app de Meta con "API de Instagram con inicio de
+            sesión de Instagram". El permiso se renueva solo cada semana.
           </p>
           <p className="flex gap-2">
             <Info className="mt-0.5 size-4 shrink-0 text-gold-500" strokeWidth={1.5} />
-            La publicación automática permanece desactivada (bloqueada en la base de datos) hasta que Instagram figure como
-            "Conectado".
+            Con Instagram conectado, activá la publicación automática en Configuración → Automatizaciones: se publica solo lo
+            aprobado, en su fecha y hora.
           </p>
         </div>
       </IntegrationCard>
