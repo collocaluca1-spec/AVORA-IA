@@ -52,8 +52,31 @@ function verifySourcesDeep(node: unknown, retrieved: Map<string, WebSource>): un
   return node
 }
 
+/**
+ * Las claves de la consola pueden ser de API clásicas (sk-ant-api…) o claves
+ * vinculadas a un usuario o cuenta de servicio (sk-ant-usr…). La API acepta la
+ * clave en `x-api-key` o como `Authorization: Bearer`; probamos la primera y, si
+ * la API responde 401, reintentamos con la segunda y recordamos cuál funcionó.
+ */
+let preferBearer: boolean | null = null
+
 export function createAnthropicProvider(apiKey: string): TextProvider {
-  const client = new Anthropic({ apiKey })
+  const viaHeader = new Anthropic({ apiKey })
+  const viaBearer = new Anthropic({ apiKey: null, authToken: apiKey })
+
+  async function withAuth<T>(fn: (c: Anthropic) => Promise<T>): Promise<T> {
+    const first = preferBearer ?? apiKey.startsWith('sk-ant-usr')
+    try {
+      const r = await fn(first ? viaBearer : viaHeader)
+      preferBearer = first
+      return r
+    } catch (e) {
+      if (!(e instanceof Anthropic.AuthenticationError)) throw e
+      const r = await fn(first ? viaHeader : viaBearer)
+      preferBearer = !first
+      return r
+    }
+  }
 
   return {
     name: 'anthropic',
@@ -66,7 +89,7 @@ export function createAnthropicProvider(apiKey: string): TextProvider {
 
       // Un turno con búsqueda web puede pausarse (pause_turn): se reenvía para que siga.
       for (let turn = 0; turn < 6; turn++) {
-        const stream = client.beta.messages.stream({
+        const message = await withAuth((client) => client.beta.messages.stream({
           model: MODEL,
           max_tokens: maxTokens ?? 16000,
           betas: ['server-side-fallback-2026-07-01'],
@@ -78,8 +101,7 @@ export function createAnthropicProvider(apiKey: string): TextProvider {
           ...(needsWebSources
             ? { tools: [{ type: 'web_search_20260209' as const, name: 'web_search' as const, max_uses: webSearchMaxUses ?? 6 }] }
             : {}),
-        })
-        const message = await stream.finalMessage()
+        }).finalMessage())
 
         for (const block of message.content) {
           if (block.type === 'web_search_tool_result' && Array.isArray(block.content)) {
@@ -108,12 +130,12 @@ export function createAnthropicProvider(apiKey: string): TextProvider {
 
     async verify() {
       // Llamada mínima para confirmar que la clave es válida.
-      const res = await client.messages.create({
+      const res = await withAuth((client) => client.messages.create({
         model: MODEL,
         max_tokens: 64,
         output_config: { effort: 'low' },
         messages: [{ role: 'user', content: 'Respondé solo: ok' }],
-      })
+      }))
       return res.stop_reason !== 'refusal'
     },
   }

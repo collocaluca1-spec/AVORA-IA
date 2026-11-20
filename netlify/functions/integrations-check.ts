@@ -17,7 +17,7 @@ function describeKey(raw: string): string {
   if (/^["']|["']$/.test(k)) hints.push('está entre comillas')
   if (/\s/.test(k)) hints.push('tiene espacios o saltos de línea en el medio')
   if (!k.startsWith('sk-ant-')) hints.push('no empieza con "sk-ant-"')
-  else if (!k.startsWith('sk-ant-api')) hints.push('no es una clave de API común (debería empezar con "sk-ant-api")')
+  else if (k.startsWith('sk-ant-admin')) hints.push('es una clave de administración (sk-ant-admin), que no sirve para generar contenido')
   if (k.length < 90) hints.push(`es muy corta (${k.length} caracteres)`)
   return hints.length
     ? `La clave cargada ${hints.join(', ')}.`
