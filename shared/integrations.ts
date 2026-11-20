@@ -54,9 +54,9 @@ export const INTEGRATIONS: Record<IntegrationKey, IntegrationDef> = {
   },
   stock_media: {
     key: 'stock_media',
-    name: 'Banco de fotos y videos (Pexels)',
-    description: 'Fotos y videos reales de destinos para cada publicación, con crédito al autor.',
-    envVars: ['PEXELS_API_KEY'],
+    name: 'Banco de fotos y videos',
+    description: 'Fotos y videos reales de destinos (Pixabay) para cada publicación, recortados al formato y con crédito al autor.',
+    envVars: ['PIXABAY_API_KEY'],
     phase: 'Fase 2',
   },
   instagram: {

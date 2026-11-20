@@ -5,6 +5,8 @@
 
 [functions]
   node_bundler = "esbuild"
+  # sharp usa binarios nativos: se instala aparte en vez de empaquetarse
+  external_node_modules = ["sharp"]
 
 # SPA: todas las rutas del panel las resuelve React Router
 [[redirects]]

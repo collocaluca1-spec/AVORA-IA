@@ -4,7 +4,7 @@ import { requireTeamMember } from '../lib/auth.ts'
 import { handleError, json } from '../lib/http.ts'
 import { logServer, supabaseAdmin } from '../lib/supabaseAdmin.ts'
 import { resolveTextProvider } from '../lib/agent/providers.ts'
-import { pexelsKey, verifyPexels } from '../lib/media/pexels.ts'
+import { resolveStockProvider } from '../lib/media/stock.ts'
 
 /** Verificación real contra el servicio, para las integraciones que ya la tienen. */
 const VERIFIERS: Partial<Record<IntegrationKey, () => Promise<{ provider: string } | null>>> = {
@@ -15,10 +15,10 @@ const VERIFIERS: Partial<Record<IntegrationKey, () => Promise<{ provider: string
     return { provider: provider.name }
   },
   async stock_media() {
-    const key = pexelsKey()
-    if (!key) return null
-    await verifyPexels(key)
-    return { provider: 'pexels' }
+    const stock = resolveStockProvider()
+    if (!stock) return null
+    await stock.verify()
+    return { provider: stock.name }
   },
 }
 
@@ -42,7 +42,7 @@ export default async (req: Request) => {
         results[key] = current.status
         continue
       }
-      const present = def.envVars.length > 0 && def.envVars.every((v) => Boolean(process.env[v]?.trim()))
+      const present = key === 'stock_media' ? resolveStockProvider() !== null : def.envVars.length > 0 && def.envVars.every((v) => Boolean(process.env[v]?.trim()))
       let status: IntegrationStatus = present ? 'credentials_present' : 'not_configured'
       let provider = key.startsWith('ai_') ? process.env[def.envVars[0]]?.trim() || null : null
       let lastError: string | null = null

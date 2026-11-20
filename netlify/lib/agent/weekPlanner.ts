@@ -1,7 +1,7 @@
 /**
  * Planificación semanal automática: el agente arma la semana siguiente según la
  * frecuencia configurada. Cada pieza queda en "Pendiente de aprobación" con
- * fecha, texto, hashtags, fuentes y material visual real (Pexels).
+ * fecha, texto, hashtags, fuentes y material visual real (Pixabay o Pexels).
  * Nada se publica sin la aprobación de un administrador.
  */
 import { FORMAT_SPECS, INSTAGRAM_CAPTION_MAX, INSTAGRAM_HASHTAG_MAX, normalizeHashtags, type ContentFormat } from '../../../shared/content.ts'
@@ -9,7 +9,7 @@ import { mentionsPrice } from '../../../shared/contentChecks.ts'
 import { repetitionReason } from '../../../shared/agent/dedupe.ts'
 import { nextMonday, weekSlots, zonedToUtc, type Slot } from '../../../shared/agent/weekSlots.ts'
 import { logServer, supabaseAdmin } from '../supabaseAdmin.ts'
-import { download, findPhotos, findVerticalVideo, pexelsKey, type StockMedia } from '../media/pexels.ts'
+import { downloadFor, resolveStockProvider, type StockMedia, type StockProvider } from '../media/stock.ts'
 import { loadBrandContext } from './brandContext.ts'
 import { resolveTextProvider } from './providers.ts'
 
@@ -103,7 +103,7 @@ export async function runWeekPlan(runId: string, input: Record<string, unknown>,
   })) as { pieces?: Piece[] }
 
   const pieces = Array.isArray(output.pieces) ? output.pieces : []
-  const key = pexelsKey()
+  const stock = resolveStockProvider()
   const { data: used } = await db.from('content_assets').select('credit').not('credit', 'is', null).limit(2000)
   const usedMedia = new Set<string>((used ?? []).map((r: any) => r.credit?.provider_id).filter(Boolean))
 
@@ -158,11 +158,11 @@ export async function runWeekPlan(runId: string, input: Record<string, unknown>,
     accepted.push({ title, topic_key })
 
     let mediaNote = ''
-    if (!key) {
-      mediaNote = 'Sin material visual: falta configurar el banco de fotos (PEXELS_API_KEY).'
+    if (!stock) {
+      mediaNote = 'Sin material visual: falta configurar el banco de fotos (PIXABAY_API_KEY).'
     } else {
       try {
-        const n = await attachMedia(item.id, slot.format, p, usedMedia, key)
+        const n = await attachMedia(item.id, slot.format, p, usedMedia, stock)
         mediaNote = n ? '' : 'No se encontró material visual adecuado; agregalo antes de aprobar.'
       } catch (e) {
         mediaNote = `No se pudo obtener el material visual: ${e instanceof Error ? e.message : String(e)}`
@@ -196,7 +196,7 @@ export async function runWeekPlan(runId: string, input: Record<string, unknown>,
   }
 }
 
-async function attachMedia(contentId: string, format: ContentFormat, p: Piece, usedMedia: Set<string>, key: string): Promise<number> {
+async function attachMedia(contentId: string, format: ContentFormat, p: Piece, usedMedia: Set<string>, stock: StockProvider): Promise<number> {
   const db = supabaseAdmin()
   const queries = (Array.isArray(p.media_queries) ? p.media_queries : []).map((q) => String(q).trim()).filter(Boolean)
   if (!queries.length && p.destination) queries.push(p.destination)
@@ -205,29 +205,29 @@ async function attachMedia(contentId: string, format: ContentFormat, p: Piece, u
   let picks: StockMedia[] = []
   if (format === 'reel') {
     for (const q of queries) {
-      const v = await findVerticalVideo(q, usedMedia, key)
+      const v = await stock.findVerticalVideo(q, usedMedia)
       if (v) { picks = [v]; break }
     }
   } else if (format === 'carousel') {
     const max = FORMAT_SPECS.carousel.maxAssets ?? 10
     for (const q of queries.slice(0, Math.min(5, max))) {
-      const [photo] = await findPhotos(q, format, 1, new Set([...usedMedia, ...picks.map((x) => x.provider_id)]), key)
+      const [photo] = await stock.findPhotos(q, format, 1, new Set([...usedMedia, ...picks.map((x) => x.provider_id)]))
       if (photo) picks.push(photo)
     }
     if (picks.length < 2) {
-      const extra = await findPhotos(queries[0], format, 3 - picks.length, new Set([...usedMedia, ...picks.map((x) => x.provider_id)]), key)
+      const extra = await stock.findPhotos(queries[0], format, 3 - picks.length, new Set([...usedMedia, ...picks.map((x) => x.provider_id)]))
       picks.push(...extra)
     }
   } else {
     for (const q of queries) {
-      const [photo] = await findPhotos(q, format, 1, usedMedia, key)
+      const [photo] = await stock.findPhotos(q, format, 1, usedMedia)
       if (photo) { picks = [photo]; break }
     }
   }
 
   let position = 0
   for (const m of picks) {
-    const { bytes, mime } = await download(m)
+    const { bytes, mime, width, height } = await downloadFor(m, format)
     const ext = mime === 'video/mp4' ? 'mp4' : mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'jpg'
     const path = `content/${contentId}/${crypto.randomUUID()}.${ext}`
     const up = await db.storage.from(MEDIA_BUCKET).upload(path, new Blob([bytes], { type: mime }), { contentType: mime, upsert: false })
@@ -236,8 +236,8 @@ async function attachMedia(contentId: string, format: ContentFormat, p: Piece, u
       content_id: contentId,
       storage_path: path,
       mime_type: mime,
-      width: m.width,
-      height: m.height,
+      width,
+      height,
       duration_seconds: m.duration_seconds ?? null,
       position: position++,
       alt_text: p.alt_text || m.alt,

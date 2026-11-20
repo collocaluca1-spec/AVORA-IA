@@ -157,7 +157,7 @@ function DetailBody({ id, onChanged, onClose }: { id: string; onChanged: () => v
                     </a>
                   </span>
                 ))}{' '}
-              en Pexels
+              en {c.content_assets.find((a) => a.credit)!.credit!.provider === 'pexels' ? 'Pexels' : 'Pixabay'}
             </p>
           )}
         </div>
