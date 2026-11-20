@@ -121,3 +121,16 @@ export async function contentCounts(): Promise<{ status: ContentStatus; format: 
   if (error) throw error
   return data as { status: ContentStatus; format: ContentFormat; total: number }[]
 }
+
+/** Publica ya en Instagram un contenido aprobado (solo administradores). */
+export async function publishNow(id: string): Promise<string> {
+  const { data: s } = await db().auth.getSession()
+  const res = await fetch('/api/publish-now', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', Authorization: `Bearer ${s.session?.access_token}` },
+    body: JSON.stringify({ content_id: id }),
+  })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(body.message ?? 'No se pudo publicar.')
+  return body.message ?? 'Publicando…'
+}

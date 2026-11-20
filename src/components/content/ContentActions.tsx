@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { addDays, setHours, setMinutes } from 'date-fns'
-import { CalendarClock, Check, PencilLine, RotateCcw, Send, X, CalendarX2, AlertTriangle } from 'lucide-react'
+import { CalendarClock, Check, PencilLine, RotateCcw, Send, X, CalendarX2, AlertTriangle, Camera } from 'lucide-react'
 import type { ContentStatus } from '@shared/content'
 import { ACTION_LABELS, availableTransitions, EDITABLE_STATUSES, type WorkflowAction } from '@shared/workflow'
 import { checkContent, hasBlockingErrors, type CheckResult } from '@shared/contentChecks'
-import { transitionContent, updateContent, type ContentWithAssets } from '@/lib/api/content'
+import { publishNow, transitionContent, updateContent, type ContentWithAssets } from '@/lib/api/content'
 import { friendlyError } from '@/lib/supabase'
 import { fromLocalInput, toLocalInput } from '@/lib/dates'
 import { useAuth } from '@/auth/AuthProvider'
@@ -119,6 +119,19 @@ export function ContentActions({
     }
   }
 
+  async function publishNowClick() {
+    setBusy('publish_now')
+    try {
+      toast.success(await publishNow(item.id))
+      setTimeout(onChanged, 15000)
+      onChanged()
+    } catch (e) {
+      toast.error(friendlyError(e))
+    } finally {
+      setBusy(null)
+    }
+  }
+
   const ordered = [...transitions].sort(
     (a, b) => Number(PRIMARY.includes(b.action)) - Number(PRIMARY.includes(a.action)),
   )
@@ -142,6 +155,17 @@ export function ContentActions({
           </Button>
         )
       })}
+      {isAdmin && (item.status === 'approved' || item.status === 'scheduled') && (
+        <Button
+          size={size}
+          variant="gold"
+          loading={busy === 'publish_now'}
+          icon={<Camera className="size-3.5" strokeWidth={1.75} />}
+          onClick={publishNowClick}
+        >
+          Publicar ahora
+        </Button>
+      )}
       {item.status === 'scheduled' && (
         <Button
           size={size}

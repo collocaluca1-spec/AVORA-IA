@@ -3,7 +3,22 @@
  * en Instagram. Nunca publica nada que no haya aprobado un administrador.
  */
 import { logServer, supabaseAdmin } from './supabaseAdmin.ts'
+import { createHmac, timingSafeEqual } from 'node:crypto'
 import { getAccount, publishItem } from './instagram.ts'
+
+/** Firma de corta duración para "Publicar ahora" (la genera solo el servidor). */
+export function signManual(contentId: string, at = Date.now()): string {
+  const minute = Math.floor(at / 60_000)
+  return `${minute}.${createHmac('sha256', process.env.SUPABASE_SERVICE_ROLE_KEY ?? '').update(`${contentId}:${minute}`).digest('hex')}`
+}
+export function verifyManual(contentId: string, sig: unknown): boolean {
+  if (typeof sig !== 'string' || !process.env.SUPABASE_SERVICE_ROLE_KEY) return false
+  const minute = Number(sig.split('.')[0])
+  if (!Number.isFinite(minute) || Math.abs(Date.now() / 60_000 - minute) > 5) return false
+  const expected = Buffer.from(signManual(contentId, minute * 60_000))
+  const got = Buffer.from(sig)
+  return expected.length === got.length && timingSafeEqual(expected, got)
+}
 
 /** ¿Está activa la publicación automática y conectado Instagram? */
 export async function autoPublishReady(): Promise<boolean> {
@@ -35,7 +50,7 @@ export async function dueItems(now = new Date()): Promise<string[]> {
 }
 
 /** Publica un contenido programado. Lo reclama de forma atómica (no se publica dos veces). */
-export async function publishOne(contentId: string): Promise<void> {
+export async function publishOne(contentId: string, opts: { manual?: boolean } = {}): Promise<void> {
   const db = supabaseAdmin()
   const { data: item } = await db
     .from('content_items')
@@ -48,7 +63,7 @@ export async function publishOne(contentId: string): Promise<void> {
   if (!item) return
 
   try {
-    if (!(await autoPublishReady())) throw new Error('La publicación automática está desactivada o Instagram no está conectado.')
+    if (!opts.manual && !(await autoPublishReady())) throw new Error('La publicación automática está desactivada o Instagram no está conectado.')
     const acc = await getAccount()
     if (!acc) throw new Error('Instagram no está conectado.')
     const { data: assets } = await db.from('content_assets').select('storage_path, mime_type, position').eq('content_id', contentId)
