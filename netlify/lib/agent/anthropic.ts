@@ -61,8 +61,11 @@ function verifySourcesDeep(node: unknown, retrieved: Map<string, WebSource>): un
 let preferBearer: boolean | null = null
 
 export function createAnthropicProvider(apiKey: string): TextProvider {
-  const viaHeader = new Anthropic({ apiKey })
-  const viaBearer = new Anthropic({ apiKey: null, authToken: apiKey })
+  // URL fija: Netlify puede inyectar ANTHROPIC_BASE_URL (AI Gateway) y el SDK la
+  // tomaría del entorno, mandando nuestra clave a otro servidor que la rechaza.
+  const baseURL = 'https://api.anthropic.com'
+  const viaHeader = new Anthropic({ apiKey, baseURL })
+  const viaBearer = new Anthropic({ apiKey: null, authToken: apiKey, baseURL })
 
   async function withAuth<T>(fn: (c: Anthropic) => Promise<T>): Promise<T> {
     const first = preferBearer ?? apiKey.startsWith('sk-ant-usr')
