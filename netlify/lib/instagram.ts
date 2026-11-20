@@ -1,14 +1,18 @@
 /**
- * Instagram API con inicio de sesión de Instagram (cuentas profesionales, sin
- * página de Facebook). https://developers.facebook.com/docs/instagram-platform
+ * API de Instagram (cuentas profesionales). https://developers.facebook.com/docs/instagram-platform
  *
- * El token inicial se carga en Netlify (INSTAGRAM_ACCESS_TOKEN). Al verificarlo
- * se guarda en `integration_tokens` (solo servidor) y desde ahí se renueva solo
- * antes de que venza (dura 60 días).
+ * Acepta dos tipos de token, cargado en Netlify como INSTAGRAM_ACCESS_TOKEN:
+ * - De inicio de sesión de Instagram ("IG…"): va a graph.instagram.com y vence a
+ *   los 60 días; se renueva solo cada semana.
+ * - De usuario del sistema del inicio de sesión unificado ("EAA…"): va a
+ *   graph.facebook.com y no vence. El id de la cuenta se detecta solo o se toma
+ *   de INSTAGRAM_ACCOUNT_ID.
+ * Al verificarlo se guarda en `integration_tokens` (solo servidor).
  */
 import { supabaseAdmin } from './supabaseAdmin.ts'
 
-const GRAPH = 'https://graph.instagram.com'
+const hostFor = (token: string) => (token.startsWith('IG') ? 'https://graph.instagram.com' : 'https://graph.facebook.com')
+const isInstagramLoginToken = (token: string) => token.startsWith('IG')
 const MEDIA_BUCKET = 'content-media'
 
 export interface IgAccount {
@@ -20,7 +24,8 @@ export interface IgAccount {
 async function ig(path: string, token: string, init: { method?: 'GET' | 'POST'; params?: Record<string, string> } = {}): Promise<any> {
   const params = new URLSearchParams({ ...(init.params ?? {}), access_token: token })
   const method = init.method ?? 'GET'
-  const url = method === 'GET' ? `${GRAPH}${path}?${params}` : `${GRAPH}${path}`
+  const base = hostFor(token)
+  const url = method === 'GET' ? `${base}${path}?${params}` : `${base}${path}`
   const res = await fetch(url, method === 'POST' ? { method, body: params } : undefined)
   const body: any = await res.json().catch(() => ({}))
   if (!res.ok || body.error) {
@@ -33,21 +38,59 @@ async function ig(path: string, token: string, init: { method?: 'GET' | 'POST'; 
   return body
 }
 
+/** Identifica la cuenta de Instagram a la que da acceso un token. */
+async function identify(token: string): Promise<{ accountId: string; username: string | null }> {
+  if (isInstagramLoginToken(token)) {
+    const me = await ig('/me', token, { params: { fields: 'user_id,username,account_type' } })
+    if (me.account_type && !['BUSINESS', 'MEDIA_CREATOR'].includes(me.account_type))
+      throw new Error('La cuenta de Instagram no es profesional (empresa o creador).')
+    return { accountId: String(me.user_id ?? me.id), username: me.username ?? null }
+  }
+  // Token del inicio de sesión unificado (usuario del sistema)
+  const explicit = process.env.INSTAGRAM_ACCOUNT_ID?.trim()
+  const candidates: string[] = explicit ? [explicit] : []
+  if (!explicit) {
+    const tries: [string, (r: any) => string[]][] = [
+      ['/me/accounts', (r) => (r.data ?? []).map((p: any) => p.instagram_business_account?.id).filter(Boolean)],
+      ['/me/businesses', (r) => (r.data ?? []).flatMap((b: any) => [...(b.owned_instagram_accounts?.data ?? []), ...(b.instagram_accounts?.data ?? [])].map((a: any) => a.id))],
+    ]
+    const fields: Record<string, string> = {
+      '/me/accounts': 'instagram_business_account{id}',
+      '/me/businesses': 'owned_instagram_accounts{id},instagram_accounts{id}',
+    }
+    for (const [path, pick] of tries) {
+      try {
+        candidates.push(...pick(await ig(path, token, { params: { fields: fields[path] } })))
+      } catch {
+        /* se prueba la siguiente forma */
+      }
+      if (candidates.length) break
+    }
+  }
+  for (const id of candidates) {
+    try {
+      const acc = await ig(`/${id}`, token, { params: { fields: 'id,username' } })
+      return { accountId: String(acc.id), username: acc.username ?? null }
+    } catch {
+      /* siguiente candidato */
+    }
+  }
+  await ig('/me', token, { params: { fields: 'id' } }) // si el token es inválido, este error es el más claro
+  throw new Error('El token es válido pero no se encontró la cuenta de Instagram. Agregá INSTAGRAM_ACCOUNT_ID en Netlify.')
+}
+
 /** Comprueba un token contra Instagram y lo guarda para el servidor. */
 export async function verifyAndStore(token: string): Promise<IgAccount> {
-  const me = await ig('/me', token, { params: { fields: 'user_id,username,account_type' } })
-  if (me.account_type && !['BUSINESS', 'MEDIA_CREATOR'].includes(me.account_type))
-    throw new Error('La cuenta de Instagram no es profesional (empresa o creador).')
-  const accountId = String(me.user_id ?? me.id)
+  const { accountId, username } = await identify(token)
   await supabaseAdmin().from('integration_tokens').upsert({
     key: 'instagram',
     token,
     account_id: accountId,
-    username: me.username ?? null,
-    expires_at: new Date(Date.now() + 60 * 86_400_000).toISOString(),
+    username,
+    expires_at: isInstagramLoginToken(token) ? new Date(Date.now() + 60 * 86_400_000).toISOString() : null,
     updated_at: new Date().toISOString(),
   })
-  return { token, accountId, username: me.username ?? null }
+  return { token, accountId, username }
 }
 
 /**
@@ -69,8 +112,7 @@ export async function verifyConnection(): Promise<IgAccount | null> {
 }
 
 async function verifyAndStoreKeepingExpiry(token: string): Promise<IgAccount> {
-  const me = await ig('/me', token, { params: { fields: 'user_id,username' } })
-  const acc = { token, accountId: String(me.user_id ?? me.id), username: me.username ?? null }
+  const acc = { token, ...(await identify(token)) }
   await supabaseAdmin().from('integration_tokens').update({ account_id: acc.accountId, username: acc.username }).eq('key', 'instagram')
   return acc
 }
@@ -88,7 +130,7 @@ export async function getAccount(): Promise<IgAccount | null> {
 export async function refreshToken(): Promise<boolean> {
   const db = supabaseAdmin()
   const { data } = await db.from('integration_tokens').select('token, updated_at, refreshed_at').eq('key', 'instagram').maybeSingle()
-  if (!data?.token) return false
+  if (!data?.token || !isInstagramLoginToken(data.token)) return false // los de usuario del sistema no vencen
   const last = new Date(data.refreshed_at ?? data.updated_at).getTime()
   if (Date.now() - last < 7 * 86_400_000) return false // una vez por semana alcanza
   const r = await ig('/refresh_access_token', data.token, { params: { grant_type: 'ig_refresh_token' } })
