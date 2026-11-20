@@ -21,7 +21,7 @@ import { IntegrationStatusPill } from '@/components/content/IntegrationStatusPil
 import { FormatIcon } from '@/components/content/FormatIcon'
 import { cn } from '@/components/ui/cn'
 
-const TASK_TITLES: Partial<Record<AgentTask, string>> = { plan_week: 'Armar la semana' }
+const TASK_TITLES: Partial<Record<AgentTask, string>> = { plan_week: 'Planificación de contenido' }
 
 const CAPABILITIES: { task: AgentTask; title: string; desc: string; icon: typeof Bot; field?: { key: string; label: string; placeholder: string } }[] = [
   { task: 'research_destination', title: 'Investigar destinos', desc: 'Mejor época, experiencias y ángulos de contenido, con fuentes citadas.', icon: Compass, field: { key: 'destination', label: 'Destino', placeholder: 'Ej.: Jujuy' } },
@@ -42,16 +42,17 @@ export default function AgentPage() {
   const [inputs, setInputs] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState<AgentTask | null>(null)
   const [newIdea, setNewIdea] = useState(false)
+  const [period, setPeriod] = useState('today_plus_3_weeks')
 
   const ai = integrations.data?.find((i) => i.key === 'ai_text')
   const aiReady = ai && ai.status !== 'not_configured' && ai.status !== 'disabled'
   const stock = integrations.data?.find((i) => i.key === 'stock_media')
   const plan = planningContext(new Date())
 
-  async function run(task: AgentTask, key?: string) {
+  async function run(task: AgentTask, key?: string, extra?: Record<string, unknown>) {
     setBusy(task)
-    if (task === 'plan_week') toast.success('El agente está armando la semana. Puede tardar unos minutos; podés seguir usando el panel.')
-    const r = await runAgent(task, key ? { [key]: inputs[task] ?? '' } : {})
+    if (task === 'plan_week') toast.success('El agente está armando el contenido. Puede tardar varios minutos (unos 3 por semana); podés seguir usando el panel.')
+    const r = await runAgent(task, extra ?? (key ? { [key]: inputs[task] ?? '' } : {}))
     setBusy(null)
     r.ok ? toast.success(r.message) : toast.error(r.message)
     ideas.reload()
@@ -86,24 +87,36 @@ export default function AgentPage() {
         </div>
       </Card>
 
-      <Card className="mb-6 flex flex-col gap-4 bg-cocoa-800 p-5 text-cream-50 ring-cocoa-700 sm:flex-row sm:items-center sm:justify-between sm:p-6">
-        <div className="flex items-start gap-4">
-          <span className="grid size-12 shrink-0 place-items-center rounded-full bg-cocoa-700 text-champagne-300">
-            <CalendarRange className="size-5" strokeWidth={1.5} />
-          </span>
-          <div className="min-w-0">
-            <p className="text-[0.95rem] text-cream-50">Semana automática</p>
-            <p className="text-xs text-cream-200/75">
-              El agente arma la semana siguiente según tu frecuencia de publicación: investiga destinos con fuentes, escribe textos y hashtags, busca fotos y videos reales y lo agenda todo como pendiente de aprobación. Se ejecuta solo cada jueves a las 9:00.
-            </p>
-            {stock && stock.status !== 'connected' && (
-              <p className="mt-1 text-xs text-champagne-300">Banco de fotos sin conectar: las piezas se crearán sin imagen.</p>
-            )}
+      <Card className="mb-6 p-5 sm:p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-start gap-4">
+            <span className="grid size-12 shrink-0 place-items-center rounded-full bg-cocoa-800 text-champagne-300">
+              <CalendarRange className="size-5" strokeWidth={1.5} />
+            </span>
+            <div className="min-w-0">
+              <p className="text-[0.95rem] text-cocoa-800">Planificación automática</p>
+              <p className="text-xs text-cocoa-500">
+                El agente investiga destinos con fuentes, escribe textos y hashtags, busca fotos y videos reales y lo agenda todo como
+                pendiente de aprobación. Además, cada jueves a las 9:00 arma solo la semana siguiente.
+              </p>
+              {stock && stock.status !== 'connected' && (
+                <p className="mt-1 text-xs text-gold-600">Banco de fotos sin conectar: las piezas se crearán sin imagen.</p>
+              )}
+            </div>
+          </div>
+          <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center">
+            <Select value={period} onChange={(e) => setPeriod(e.target.value)} aria-label="Período a planificar" disabled={!aiReady || busy !== null}>
+              <option value="rest_of_week">Resto de esta semana (desde hoy)</option>
+              <option value="next_week">La semana que viene</option>
+              <option value="next_2_weeks">Las próximas 2 semanas</option>
+              <option value="next_3_weeks">Las próximas 3 semanas</option>
+              <option value="today_plus_3_weeks">Desde hoy + 3 semanas</option>
+            </Select>
+            <Button size="sm" disabled={!aiReady || busy !== null} loading={busy === 'plan_week'} onClick={() => run('plan_week', undefined, { period })}>
+              {aiReady ? 'Armar contenido' : 'Requiere IA configurada'}
+            </Button>
           </div>
         </div>
-        <Button className="shrink-0" size="sm" disabled={!aiReady || busy !== null} loading={busy === 'plan_week'} onClick={() => run('plan_week')}>
-          {aiReady ? 'Armar la semana ahora' : 'Requiere IA configurada'}
-        </Button>
       </Card>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">

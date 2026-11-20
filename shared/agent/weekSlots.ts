@@ -62,34 +62,53 @@ export function nextMonday(now: Date, timeZone: string): string {
 
 const isTime = (t: unknown): t is string => typeof t === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(t)
 
+/** Cantidad de días desde `from` hasta el domingo inclusive (fechas locales). */
+export function daysUntilSundayInclusive(from: string): number {
+  const [y, m, d] = from.split('-').map(Number)
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay() // 0 = domingo
+  return dow === 0 ? 1 : 8 - dow
+}
+
+export { addDaysIso }
+
 /**
- * Reparte las piezas de cada formato en los 7 días de la semana, alternando los
- * horarios preferidos y evitando dos piezas del mismo formato el mismo día.
- * `existing` descuenta lo que ya hay planificado esa semana (re-ejecución segura).
+ * Reparte las piezas de cada formato en un período de `days` días (por defecto
+ * una semana), proporcional a la frecuencia semanal, alternando los horarios
+ * preferidos y evitando dos piezas del mismo formato el mismo día.
+ * `existing` descuenta lo que ya hay planificado en el período (re-ejecución segura)
+ * y `notBefore` descarta horarios que ya pasaron (para "hoy").
  */
 export function weekSlots(opts: {
   weekStart: string
+  days?: number
   perWeek: Partial<Record<ContentFormat, number>>
   preferredTimes: string[]
   timeZone: string
   existing?: Partial<Record<ContentFormat, number>>
+  notBefore?: Date
 }): Slot[] {
+  const days = Math.max(1, Math.min(7, Math.floor(opts.days ?? 7)))
   const times = opts.preferredTimes.filter(isTime).sort()
   const useTimes = times.length ? times : ['10:00']
   const perDayUse = new Map<string, number>() // `${day}|${time}` → piezas
   const slots: Slot[] = []
+  const minAt = opts.notBefore ? opts.notBefore.getTime() : -Infinity
 
   FORMAT_ORDER.forEach((format, fi) => {
-    const wanted = Math.max(0, Math.min(14, Math.floor(Number(opts.perWeek[format] ?? 0))))
+    const weekly = Math.max(0, Math.min(14, Math.floor(Number(opts.perWeek[format] ?? 0))))
+    const wanted = days === 7 ? weekly : Math.round((weekly * days) / 7)
     const n = Math.max(0, wanted - Math.max(0, Number(opts.existing?.[format] ?? 0)))
+    const perRound = Math.min(n, days)
     for (let i = 0; i < n; i++) {
-      // Distribución pareja; con más de 7 piezas, segunda vuelta en otro horario.
-      const day = (Math.floor(((i % 7) + 0.5) * 7 / Math.min(n, 7)) + fi) % 7
+      // Distribución pareja; si hay más piezas que días, segunda vuelta en otro horario.
+      const day = (Math.floor(((i % days) + 0.5) * days / Math.max(1, perRound)) + fi) % days
       const localDate = addDaysIso(opts.weekStart, day)
-      let best = useTimes[(i + fi) % useTimes.length]
+      const free = useTimes.filter((t) => zonedToUtc(localDate, t, opts.timeZone).getTime() > minAt)
+      if (!free.length) continue // ese día ya no quedan horarios
+      let best = free[(i + fi) % free.length]
       let bestUse = Infinity
-      for (let k = 0; k < useTimes.length; k++) {
-        const t = useTimes[(i + fi + k) % useTimes.length]
+      for (let k = 0; k < free.length; k++) {
+        const t = free[(i + fi + k) % free.length]
         const u = perDayUse.get(`${localDate}|${t}`) ?? 0
         if (u < bestUse) {
           best = t

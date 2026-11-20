@@ -7,7 +7,7 @@
 import { FORMAT_SPECS, INSTAGRAM_CAPTION_MAX, INSTAGRAM_HASHTAG_MAX, normalizeHashtags, type ContentFormat } from '../../../shared/content.ts'
 import { mentionsPrice } from '../../../shared/contentChecks.ts'
 import { repetitionReason } from '../../../shared/agent/dedupe.ts'
-import { nextMonday, weekSlots, zonedToUtc, type Slot } from '../../../shared/agent/weekSlots.ts'
+import { addDaysIso, daysUntilSundayInclusive, localDateOf, nextMonday, weekSlots, zonedToUtc, type Slot } from '../../../shared/agent/weekSlots.ts'
 import { logServer, supabaseAdmin } from '../supabaseAdmin.ts'
 import { downloadFor, resolveStockProvider, type StockMedia, type StockProvider } from '../media/stock.ts'
 import { loadBrandContext } from './brandContext.ts'
@@ -37,7 +37,75 @@ function formatLine(s: Slot, i: number) {
   return `${i + 1}. ${spec.label} · ${s.localDate} ${s.localTime}`
 }
 
+export const PLAN_PERIODS = ['rest_of_week', 'next_week', 'next_2_weeks', 'next_3_weeks', 'today_plus_3_weeks'] as const
+export type PlanPeriod = (typeof PLAN_PERIODS)[number]
+
+interface Chunk {
+  start: string
+  days: number
+  notBefore?: Date
+}
+
+/** Divide el período pedido en tramos de hasta una semana (una llamada a la IA por tramo). */
+export function chunksFor(period: PlanPeriod, now: Date, timeZone: string): Chunk[] {
+  const today = localDateOf(now, timeZone)
+  const monday = nextMonday(now, timeZone)
+  const weeks = (n: number) => Array.from({ length: n }, (_, i) => ({ start: addDaysIso(monday, 7 * i), days: 7 }))
+  // Lo de hoy, al menos 30 minutos después de ahora (da tiempo a aprobar).
+  const rest: Chunk = { start: today, days: daysUntilSundayInclusive(today), notBefore: new Date(now.getTime() + 30 * 60_000) }
+  switch (period) {
+    case 'rest_of_week':
+      return [rest]
+    case 'next_2_weeks':
+      return weeks(2)
+    case 'next_3_weeks':
+      return weeks(3)
+    case 'today_plus_3_weeks':
+      return [rest, ...weeks(3)]
+    default:
+      return weeks(1)
+  }
+}
+
 export async function runWeekPlan(runId: string, input: Record<string, unknown>, userId: string | null) {
+  const { data: f } = await supabaseAdmin().from('app_settings').select('value').eq('key', 'publishing_frequency').single()
+  const timeZone: string = (f?.value as any)?.timezone || 'America/Argentina/Buenos_Aires'
+  const period = (PLAN_PERIODS as readonly string[]).includes(String(input.period)) ? (input.period as PlanPeriod) : 'next_week'
+  const chunks = chunksFor(period, new Date(), timeZone)
+
+  const results = []
+  const started = Date.now()
+  let pending = 0
+  for (const c of chunks) {
+    // La función en segundo plano tiene 15 min: si se acerca el límite, se corta y
+    // se puede volver a ejecutar (lo ya creado se descuenta, no se duplica).
+    if (Date.now() - started > 10 * 60_000) {
+      pending++
+      continue
+    }
+    results.push(await planChunk(runId, c, userId))
+  }
+  const created = results.reduce((n, r) => n + r.created, 0)
+  const planned = results.reduce((n, r) => n + (r.planned ?? 0), 0)
+  const from = chunks[0].start
+  const until = addDaysIso(chunks[chunks.length - 1].start, chunks[chunks.length - 1].days - 1)
+  const sources = new Map<string, { url: string; title: string }>()
+  results.forEach((r) => r.sources.forEach((s: { url: string; title: string }) => sources.set(s.url, s)))
+  return {
+    summary:
+      (planned
+        ? `Del ${from} al ${until}: ${created} de ${planned} piezas creadas y pendientes de aprobación.`
+        : `Del ${from} al ${until} ya estaba todo planificado.`) +
+      (pending ? ` Faltó tiempo para ${pending} semana(s): volvé a tocar el botón para completarlas.` : ''),
+    period,
+    created,
+    planned,
+    pieces: results.flatMap((r) => r.pieces ?? []),
+    sources: [...sources.values()],
+  }
+}
+
+async function planChunk(runId: string, chunk: Chunk, userId: string | null) {
   const { provider } = resolveTextProvider()
   if (!provider) throw new Error('La IA de texto no está configurada en el servidor.')
   const db = supabaseAdmin()
@@ -48,9 +116,9 @@ export async function runWeekPlan(runId: string, input: Record<string, unknown>,
   const brand = get('brand_identity')
   const timeZone: string = freq.timezone || 'America/Argentina/Buenos_Aires'
 
-  const weekStart = typeof input.week_start === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input.week_start) ? input.week_start : nextMonday(new Date(), timeZone)
+  const weekStart = chunk.start
   const from = zonedToUtc(weekStart, '00:00', timeZone)
-  const to = new Date(from.getTime() + 7 * 86_400_000)
+  const to = zonedToUtc(addDaysIso(weekStart, chunk.days), '00:00', timeZone)
 
   // Lo que ya está planificado esa semana se descuenta (re-ejecutar no duplica).
   const { data: existingRows } = await db
@@ -62,8 +130,8 @@ export async function runWeekPlan(runId: string, input: Record<string, unknown>,
   const existing: Partial<Record<ContentFormat, number>> = {}
   for (const r of existingRows ?? []) existing[r.format as ContentFormat] = (existing[r.format as ContentFormat] ?? 0) + 1
 
-  const slots = weekSlots({ weekStart, perWeek: freq.per_week ?? {}, preferredTimes: freq.preferred_times ?? [], timeZone, existing })
-  if (!slots.length) return { summary: `La semana del ${weekStart} ya estaba completa.`, week_start: weekStart, created: 0, sources: [] }
+  const slots = weekSlots({ weekStart, days: chunk.days, perWeek: freq.per_week ?? {}, preferredTimes: freq.preferred_times ?? [], timeZone, existing, notBefore: chunk.notBefore })
+  if (!slots.length) return { summary: `Del ${weekStart} ya estaba completo.`, week_start: weekStart, created: 0, planned: 0, pieces: [], sources: [] }
 
   const ctx = await loadBrandContext(db)
   const { data: recent } = await db.rpc('recent_topics', { p_days: ctx.avoidRepeatDays })
@@ -74,7 +142,7 @@ export async function runWeekPlan(runId: string, input: Record<string, unknown>,
     .gte('created_at', new Date(Date.now() - ctx.avoidRepeatDays * 86_400_000).toISOString())
 
   const prompt = [
-    `Armá el plan de Instagram de la semana que empieza el ${weekStart}. Hay ${slots.length} espacios:`,
+    `Armá el plan de Instagram del ${weekStart} al ${addDaysIso(weekStart, chunk.days - 1)}. Hay ${slots.length} espacios:`,
     ...slots.map(formatLine),
     '',
     'Para cada espacio, una pieza lista para aprobar:',
