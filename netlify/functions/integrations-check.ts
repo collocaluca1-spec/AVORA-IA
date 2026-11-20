@@ -6,12 +6,36 @@ import { logServer, supabaseAdmin } from '../lib/supabaseAdmin.ts'
 import { resolveTextProvider } from '../lib/agent/providers.ts'
 import { resolveStockProvider } from '../lib/media/stock.ts'
 
+/**
+ * Describe la forma de una clave SIN revelarla, para diagnosticar errores de
+ * copiado (comillas, espacios, prefijo equivocado, longitud).
+ */
+function describeKey(raw: string): string {
+  const k = raw.trim()
+  const hints: string[] = []
+  if (raw !== k) hints.push('tiene espacios al principio o al final')
+  if (/^["']|["']$/.test(k)) hints.push('está entre comillas')
+  if (/\s/.test(k)) hints.push('tiene espacios o saltos de línea en el medio')
+  if (!k.startsWith('sk-ant-')) hints.push('no empieza con "sk-ant-"')
+  else if (!k.startsWith('sk-ant-api')) hints.push('no es una clave de API común (debería empezar con "sk-ant-api")')
+  if (k.length < 90) hints.push(`es muy corta (${k.length} caracteres)`)
+  return hints.length
+    ? `La clave cargada ${hints.join(', ')}.`
+    : `La clave tiene el formato correcto (${k.length} caracteres): puede estar desactivada, borrada o ser de otra cuenta. Creá una nueva y reemplazala.`
+}
+
 /** Verificación real contra el servicio, para las integraciones que ya la tienen. */
 const VERIFIERS: Partial<Record<IntegrationKey, () => Promise<{ provider: string } | null>>> = {
   async ai_text() {
     const { provider } = resolveTextProvider()
     if (!provider) return null
-    if (!(await provider.verify())) throw new Error('El proveedor rechazó la verificación.')
+    try {
+      if (!(await provider.verify())) throw new Error('El proveedor rechazó la verificación.')
+    } catch (e) {
+      const status = (e as { status?: number }).status
+      if (status === 401 || status === 403) throw new Error(`Anthropic rechazó la clave. ${describeKey(process.env.AI_TEXT_API_KEY ?? '')}`)
+      throw e
+    }
     return { provider: provider.name }
   },
   async stock_media() {
